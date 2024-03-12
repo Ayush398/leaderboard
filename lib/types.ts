@@ -95,6 +95,9 @@ export interface AuthoredIssueAndPr {
 // Release interface
 export interface Release {
   name: string;
+  tag: {
+    name: string;
+  };
   createdAt: string;
   description: string;
   url: string;
@@ -128,7 +131,6 @@ export interface Organization {
 
 // GitHubResponse interface
 export interface ReleasesResponse {
-  data: any;
   organization: Organization;
 }
 

@@ -5,79 +5,70 @@ import { FiExternalLink, FiGithub } from "react-icons/fi";
 import Link from "next/link";
 import { ActiveProjectLabelConfig } from "./constants";
 import { env } from "@/env.mjs";
-import { getGitHubAccessToken } from "@/lib/octokit";
+import octokit, { getGitHubAccessToken } from "@/lib/octokit";
 
 type GraphQLOrgActiveProjectsResponse = {
-  data: {
-    organization: {
-      repositories: {
-        edges: {
-          node: {
-            name: string;
-            issues: {
-              edges: {
-                node: {
-                  title: string;
-                  body: string;
-                  url: string;
-                  createdAt: string;
-                  updatedAt: string;
-                  author: { login: string };
-                  labels: {
-                    edges: {
-                      node: {
-                        name: string;
-                      };
-                    }[];
-                  };
+  organization: {
+    repositories: {
+      edges: {
+        node: {
+          name: string;
+          issues: {
+            edges: {
+              node: {
+                title: string;
+                body: string;
+                url: string;
+                createdAt: string;
+                updatedAt: string;
+                author: { login: string };
+                labels: {
+                  edges: {
+                    node: {
+                      name: string;
+                    };
+                  }[];
                 };
-              }[];
-            };
+              };
+            }[];
           };
-        }[];
-      };
+        };
+      }[];
     };
   };
 };
 
 async function fetchIssues(labels: string[]) {
-  const labelsFilter = labels.map((label) => `"${label}"`).join(", ");
-
   const accessToken = getGitHubAccessToken();
 
   if (!accessToken) {
     return [];
   }
 
-  const res = await fetch("https://api.github.com/graphql", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query: `
-    {
-      organization(login: "${env.NEXT_PUBLIC_GITHUB_ORG}") {
-        repositories(first: 100, orderBy: {field: PUSHED_AT, direction: DESC}) {
-          edges {
-            node {
-              name
-              issues(first: 100, states: OPEN, labels: [${labelsFilter}]) {
-                edges {
-                  node {
-                    title
-                    body
-                    url
-                    createdAt
-                    updatedAt
-                    author {
-                      login
-                    },
-                    labels(first: 5) {
-                      edges {
-                        node {
-                          name
+  const data: GraphQLOrgActiveProjectsResponse = await octokit.graphql(
+    `
+      query getIssues($org: String!, $labels: [String!]!) {
+        organization(login: $org) {
+          repositories(first: 100, orderBy: {field: PUSHED_AT, direction: DESC}) {
+            edges {
+              node {
+                name
+                issues(first: 100, states: OPEN, labels: $labels) {
+                  edges {
+                    node {
+                      title
+                      body
+                      url
+                      createdAt
+                      updatedAt
+                      author {
+                        login
+                      },
+                      labels(first: 5) {
+                        edges {
+                          node {
+                            name
+                          }
                         }
                       }
                     }
@@ -88,18 +79,14 @@ async function fetchIssues(labels: string[]) {
           }
         }
       }
-    }
     `,
-    }),
-  });
+    {
+      org: env.NEXT_PUBLIC_GITHUB_ORG,
+      labels,
+    },
+  );
 
-  if (!res.ok) {
-    throw new Error(`HTTP error! status: ${res.status}`);
-  }
-
-  const json = (await res.json()) as GraphQLOrgActiveProjectsResponse;
-
-  const result = json.data.organization.repositories.edges.flatMap((repo) =>
+  const result = data.organization.repositories.edges.flatMap((repo) =>
     repo.node.issues.edges.map((issue) => ({
       ...issue.node,
       labels: issue.node.labels.edges.map((label) => label.node.name),
@@ -140,7 +127,7 @@ export default async function ActiveProjects(props: {
           id={`${issue.repo}-${issue.number}`}
           className="flex flex-col rounded-lg border shadow-sm dark:border-secondary-700"
         >
-          <div className="flex items-center justify-between p-6 pb-0 pt-4">
+          <div className="flex justify-between p-6 pb-0 pt-4 max-sm:flex-col max-sm:gap-3 sm:items-center">
             <div
               className={`flex items-center ${props.small ? "gap-2" : "gap-3"}`}
             >
@@ -161,7 +148,12 @@ export default async function ActiveProjects(props: {
                                 : "border-current px-3 py-1 text-sm"
                             }`}
                     >
-                      {props.small ? label : props.labels[label].name}
+                      <span className="max-sm:hidden">
+                        {props.labels[label].name}
+                      </span>
+                      <span className="sm:hidden">
+                        {props.labels[label].shortName}
+                      </span>
                     </Link>
                   ))}
               </div>
@@ -215,7 +207,6 @@ export default async function ActiveProjects(props: {
               />
             </p>
           </div>
-
           {!props.small && (
             <div className="break-all bg-secondary-100 p-6 text-sm dark:bg-secondary-800 ">
               <Markdown>{issue.body}</Markdown>
